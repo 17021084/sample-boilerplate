@@ -1,0 +1,137 @@
+image: ${CI_BASE_IMAGE}:latest
+
+stages:
+  - coding_convention
+  - build_staging
+  - deploy_staging
+  - clean_staging
+  - build_prod
+  - deploy_prod
+  - clean_prod
+
+coding_convention:
+  stage: coding_convention
+  script:
+    - yarn install
+    - yarn lint
+  when: always
+  except:
+    - staging
+    - master
+
+.docker_setup:
+  before_script:
+    - docker login -u "${CI_REGISTRY_USER}" -p "${CI_REGISTRY_PASSWORD}" ${CI_REGISTRY}
+
+.ssh_setup:
+  before_script:
+  - eval "$(ssh-agent -s)"
+  - ssh-add <(echo "${SSH_PRIVATE_KEY}" | base64 -d)
+
+.build_setup:
+  script:
+    - docker build --pull -t "${REGISTRY_IMAGE}" . -f $CI_DOCKER_FILE
+    - docker push "${REGISTRY_IMAGE}"
+    - echo "Registry image:" ${REGISTRY_IMAGE}
+
+.deployment_setup:
+  script:
+    - ssh -o StrictHostKeyChecking=no ${SERVER_USERNAME}@${SERVER_IP} "docker pull ${REGISTRY_IMAGE}"
+    - ssh -o StrictHostKeyChecking=no ${SERVER_USERNAME}@${SERVER_IP} "docker rm -f auction_portal || true"
+    - ssh -o StrictHostKeyChecking=no ${SERVER_USERNAME}@${SERVER_IP} "docker run -p ${EXPOSE_PORT}:4000 -d --name auction_portal ${REGISTRY_IMAGE}"
+
+.unused_script:
+  script:
+    - ssh -o StrictHostKeyChecking=no ${SERVER_USERNAME}@${SERVER_IP} "docker image prune -a -f"
+
+build_staging:
+  stage: build_staging
+  image: docker:latest
+  variables:
+    REGISTRY_IMAGE: ${CI_REGISTRY_IMAGE}/staging
+    CI_DOCKER_FILE: stag.Dockerfile
+  services:
+    - name: docker:19.03.8-dind
+  before_script:
+    - !reference [.docker_setup, before_script]
+  script:
+    - !reference [.build_setup, script]
+  when: on_success
+  only:
+    - staging
+
+deploy_staging:
+  stage: deploy_staging
+  image: kroniak/ssh-client
+  variables:
+    REGISTRY_IMAGE: ${CI_REGISTRY_IMAGE}/staging
+    SERVER_IP: ${SERVER_STAGING_IP}
+    SERVER_USERNAME: tainv.its-global.vn
+    EXPOSE_PORT: 4000
+  before_script:
+    - !reference [.ssh_setup, before_script]
+  script:
+    - !reference [.deployment_setup, script]
+  when: on_success
+  only:
+    - staging
+
+clean_staging:
+  stage: clean_staging
+  image: kroniak/ssh-client
+  variables:
+    SERVER_IP: ${SERVER_STAGING_IP}
+    SERVER_USERNAME: tainv.its-global.vn
+  before_script:
+    - !reference [.ssh_setup, before_script]
+  script:
+    - !reference [.unused_script, script]
+  when: on_success
+  only:
+    - staging
+
+build_prod:
+  stage: build_prod
+  image: docker:latest
+  variables:
+    REGISTRY_IMAGE: ${CI_REGISTRY_IMAGE}/prod
+    CI_DOCKER_FILE: prod.Dockerfile
+  services:
+    - name: docker:19.03.8-dind
+  before_script:
+    - !reference [.docker_setup, before_script]
+  script:
+    - !reference [.build_setup, script]
+  when: on_success
+  only:
+    - master
+
+deploy_prod:
+  stage: deploy_prod
+  image: kroniak/ssh-client
+  variables:
+    REGISTRY_IMAGE: ${CI_REGISTRY_IMAGE}/prod
+    SERVER_IP: ${SERVER_PRODUCTION_IP}
+    SERVER_USERNAME: root
+    EXPOSE_PORT: 4000
+  before_script:
+    - !reference [.ssh_setup, before_script]
+  script:
+    - !reference [.deployment_setup, script]
+  when: on_success
+  only:
+    - master
+
+clean_prod:
+  stage: clean_prod
+  image: kroniak/ssh-client
+  variables:
+    SERVER_IP: ${SERVER_PRODUCTION_IP}
+    SERVER_USERNAME: root
+  before_script:
+    - !reference [.ssh_setup, before_script]
+  script:
+    - !reference [.unused_script, script]
+  when: on_success
+  only:
+    - master
