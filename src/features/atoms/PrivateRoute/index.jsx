@@ -14,7 +14,7 @@ const PrivateRoute = ({ component: Component, ...others }) => {
 }
 
 PrivateRoute.propTypes = {
-  component: PropTypes.any
+  component: PropTypes?.any
 }
 
 export default React.memo(PrivateRoute)

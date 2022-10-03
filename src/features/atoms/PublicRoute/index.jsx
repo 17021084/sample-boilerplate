@@ -14,7 +14,7 @@ const PublicRoute = ({ component: Component, ...others }) => {
 }
 
 PublicRoute.propTypes = {
-  component: PropTypes.any
+  component: PropTypes?.any
 }
 
 export default React.memo(PublicRoute)
